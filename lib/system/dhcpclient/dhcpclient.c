@@ -603,7 +603,7 @@ bcast:
 
 			m = lws_plat_rawudp_broadcast(p, rawdisc,
 						      LWS_ARRAY_SIZE(rawdisc),
-						      n + 28,
+						      (size_t)(n + 28),
 						      r->wsi_raw->desc.sockfd,
 						      (const char *)&r[1]);
 			if (m < 0)

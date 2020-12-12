@@ -266,7 +266,7 @@ next_dns_result:
 	sa46_sockport(&wsi->sa46_peer, htons(port));
 
 	psa = sa46_sockaddr(&wsi->sa46_peer);
-	n = sa46_socklen(&wsi->sa46_peer);
+	n = (int)sa46_socklen(&wsi->sa46_peer);
 
 #if defined(LWS_WITH_UNIX_SOCK)
 ads_known:
@@ -385,13 +385,13 @@ ads_known:
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (!wsi->unix_skt)
 #endif
-		memcpy(&wsi->sa46_peer, psa, n);
+		memcpy(&wsi->sa46_peer, psa, (unsigned int)n);
 
 	/*
 	 * Finally, make the actual connection attempt
 	 */
 
-	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, n);
+	m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa, (unsigned int)n);
 	if (m == -1) {
 		/*
 		 * Since we're nonblocking, connect not having completed is not

@@ -250,7 +250,7 @@ solo:
 
 	if (wsi->a.vhost->http.http_proxy_port) {
 		ads = wsi->a.vhost->http.http_proxy_address;
-		port = wsi->a.vhost->http.http_proxy_port;
+		port = (int)wsi->a.vhost->http.http_proxy_port;
 #else
 		if (0) {
 #endif
@@ -262,7 +262,7 @@ solo:
 	} else if (wsi->a.vhost->socks_proxy_port) {
 		lwsl_client("Sending SOCKS Greeting\n");
 		ads = wsi->a.vhost->socks_proxy_address;
-		port = wsi->a.vhost->socks_proxy_port;
+		port = (int)wsi->a.vhost->socks_proxy_port;
 #endif
 	} else {
 
