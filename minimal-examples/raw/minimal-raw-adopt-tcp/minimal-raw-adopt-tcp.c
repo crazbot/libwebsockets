@@ -31,7 +31,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#if !defined(WIN32)
 #include <unistd.h>
+#endif
 #include <errno.h>
 
 static int
@@ -179,7 +181,7 @@ int main(int argc, const char **argv)
 	}
 
 	while (n >= 0 && !interrupted)
-		n = lws_service(context, 1000);
+		n = lws_service(context, 0);
 
 bail:
 	lws_context_destroy(context);

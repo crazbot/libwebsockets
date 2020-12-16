@@ -1,7 +1,7 @@
 /*
  * libwebsockets web server application
  *
- * Written in 2010-2019 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2020 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -51,8 +51,13 @@ int fork(void)
 
 #include <uv.h>
 
+#if defined(LWS_HAVE_MALLOC_TRIM)
+#include <malloc.h>
+#endif
+
 static struct lws_context *context;
-static char config_dir[128];
+static lws_sorted_usec_list_t sul_lwsws;
+static char config_dir[128], default_plugin_path = 1;
 static int opts = 0, do_reload = 1;
 static uv_loop_t loop;
 static uv_signal_t signal_outer[2];
@@ -72,16 +77,19 @@ static const struct lws_extension exts[] = {
 	{ NULL, NULL, NULL /* terminator */ }
 };
 
+#if defined(LWS_WITH_PLUGINS)
 static const char * const plugin_dirs[] = {
 	INSTALL_DATADIR"/libwebsockets-test-server/plugins/",
 	NULL
 };
+#endif
 
 #if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
 static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "debug",	required_argument,	NULL, 'd' },
 	{ "configdir",  required_argument,	NULL, 'c' },
+	{ "no-default-plugins",  no_argument,	NULL, 'n' },
 	{ NULL, 0, 0, 0 }
 };
 #endif
@@ -111,6 +119,18 @@ void signal_cb(uv_signal_t *watcher, int signum)
 	lws_context_destroy(context);
 }
 
+static void
+lwsws_min(lws_sorted_usec_list_t *sul)
+{
+	lwsl_debug("%s\n", __func__);
+
+#if defined(LWS_HAVE_MALLOC_TRIM)
+	malloc_trim(4 * 1024);
+#endif
+
+	lws_sul_schedule(context, 0, &sul_lwsws, lwsws_min, 60 * LWS_US_PER_SEC);
+}
+
 static int
 context_creation(void)
 {
@@ -129,11 +149,14 @@ context_creation(void)
 
 	info.external_baggage_free_on_destroy = config_strings;
 	info.pt_serv_buf_size = 8192;
-	info.options = opts | LWS_SERVER_OPTION_VALIDATE_UTF8 |
+	info.options = (uint64_t)((uint64_t)opts | LWS_SERVER_OPTION_VALIDATE_UTF8 |
 			      LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
-			      LWS_SERVER_OPTION_LIBUV;
+			      LWS_SERVER_OPTION_LIBUV);
 
-	info.plugin_dirs = plugin_dirs;
+#if defined(LWS_WITH_PLUGINS)
+	if (default_plugin_path)
+		info.plugin_dirs = plugin_dirs;
+#endif
 	lwsl_notice("Using config dir: \"%s\"\n", config_dir);
 
 	/*
@@ -161,6 +184,8 @@ context_creation(void)
 
 	if (lwsws_get_config_vhosts(context, &info, config_dir, &cs, &cs_len))
 		return 1;
+
+	lws_sul_schedule(context, 0, &sul_lwsws, lwsws_min, 60 * LWS_US_PER_SEC);
 
 	return 0;
 
@@ -197,7 +222,7 @@ reload_handler(int signum)
 	case SIGINT:
 	case SIGTERM:
 	case SIGKILL:
-		fprintf(stderr, "master process waiting 2s...\n");
+		fprintf(stderr, "parent process waiting 2s...\n");
 		sleep(2); /* give children a chance to deal with the signal */
 		fprintf(stderr, "killing service processes\n");
 		for (m = 0; m < (int)LWS_ARRAY_SIZE(pids); m++)
@@ -221,9 +246,9 @@ int main(int argc, char **argv)
 	strcpy(config_dir, "/etc/lwsws");
 	while (n >= 0) {
 #if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
-		n = getopt_long(argc, argv, "hd:c:", options, NULL);
+		n = getopt_long(argc, argv, "hd:c:n", options, NULL);
 #else
-		n = getopt(argc, argv, "hd:c:");
+		n = getopt(argc, argv, "hd:c:n");
 #endif
 		if (n < 0)
 			continue;
@@ -231,12 +256,16 @@ int main(int argc, char **argv)
 		case 'd':
 			debug_level = atoi(optarg);
 			break;
+		case 'n':
+			default_plugin_path = 0;
+			break;
 		case 'c':
 			lws_strncpy(config_dir, optarg, sizeof(config_dir));
 			break;
 		case 'h':
 			fprintf(stderr, "Usage: lwsws [-c <config dir>] "
-					"[-d <log bitfield>] [--help]\n");
+					"[-d <log bitfield>] [--help] "
+					"[-n]\n");
 			exit(1);
 		}
 	}
@@ -252,7 +281,7 @@ int main(int argc, char **argv)
 	signal(SIGHUP, reload_handler);
 	signal(SIGINT, reload_handler);
 
-	fprintf(stderr, "Root process is %u\n", getpid());
+	fprintf(stderr, "Root process is %u\n", (unsigned int)getpid());
 
 	while (1) {
 		if (do_reload) {
@@ -287,8 +316,8 @@ int main(int argc, char **argv)
 
 	lws_set_log_level(debug_level, lwsl_emit_stderr_notimestamp);
 
-	lwsl_notice("lwsws libwebsockets web server - license CC0 + LGPL2.1\n");
-	lwsl_notice("(C) Copyright 2010-2018 Andy Green <andy@warmcat.com>\n");
+	lwsl_notice("lwsws libwebsockets web server - license CC0 + MIT\n");
+	lwsl_notice("(C) Copyright 2010-2020 Andy Green <andy@warmcat.com>\n");
 
 #if (UV_VERSION_MAJOR > 0) // Travis...
 	uv_loop_init(&loop);
@@ -314,6 +343,9 @@ int main(int argc, char **argv)
 		uv_signal_stop(&signal_outer[n]);
 		uv_close((uv_handle_t *)&signal_outer[n], NULL);
 	}
+
+	/* cancel the per-minute sul */
+	lws_sul_cancel(&sul_lwsws);
 
 	lws_context_destroy(context);
 	(void)budget;

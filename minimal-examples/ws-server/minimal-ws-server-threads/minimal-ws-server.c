@@ -21,6 +21,12 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#if defined(WIN32)
+#define HAVE_STRUCT_TIMESPEC
+#if defined(pid_t)
+#undef pid_t
+#endif
+#endif
 #include <pthread.h>
 
 #define LWS_PLUGIN_STATIC
@@ -120,7 +126,7 @@ int main(int argc, const char **argv)
 	/* start the threads that create content */
 
 	while (!interrupted)
-		if (lws_service(context, 1000))
+		if (lws_service(context, 0))
 			interrupted = 1;
 
 	lws_context_destroy(context);

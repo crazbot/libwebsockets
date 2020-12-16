@@ -1,26 +1,31 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
  *
- *  This library is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU Lesser General Public
- *  License as published by the Free Software Foundation:
- *  version 2.1 of the License.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to
+ * deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
  *
- *  This library is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- *  Lesser General Public License for more details.
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
  *
- *  You should have received a copy of the GNU Lesser General Public
- *  License along with this library; if not, write to the Free Software
- *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- *  MA  02110-1301  USA
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ * IN THE SOFTWARE.
  */
 
+#if !defined(_GNU_SOURCE)
 #define _GNU_SOURCE
-#include "core/private.h"
+#endif
+#include "private-lib-core.h"
 
 #include <pwd.h>
 #include <grp.h>
@@ -49,13 +54,13 @@ lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid
 	char *colon = strchr(u_colon_g, ':'), u[33];
 	struct passwd *p;
 	struct group *g;
-	int ulen;
+	size_t ulen;
 
 	if (!colon)
 		return 1;
 
-	ulen = lws_ptr_diff(colon, u_colon_g);
-	if (ulen < 2 || ulen > (int)sizeof(u) - 1)
+	ulen = (size_t)(unsigned int)lws_ptr_diff(colon, u_colon_g);
+	if (ulen < 2 || ulen > sizeof(u) - 1)
 		return 1;
 
 	memcpy(u, u_colon_g, ulen);
@@ -73,7 +78,7 @@ lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid
 
 	p = getpwnam(u);
 	if (!p) {
-		lwsl_err("%s: unknown group '%s'\n", __func__, u);
+		lwsl_err("%s: unknown user '%s'\n", __func__, u);
 
 		return 1;
 	}
@@ -128,7 +133,7 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 
 	/* if he gave us the gid or we have it from the groupname, set it */
 
-	if (context->gid && context->gid != -1) {
+	if (context->gid && context->gid != (gid_t)-1l) {
 		g = getgrgid(context->gid);
 
 		if (!g) {
@@ -153,7 +158,7 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 
 	/* if he gave us the uid or we have it from the username, set it */
 
-	if (context->uid && context->uid != -1) {
+	if (context->uid && context->uid != (uid_t)-1l) {
 		p = getpwuid(context->uid);
 
 		if (!p) {
@@ -167,7 +172,13 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 				     context->count_caps);
 #endif
 
-		initgroups(p->pw_name, context->gid);
+		if (initgroups(p->pw_name,
+#if defined(__APPLE__)
+				(int)
+#endif
+				context->gid))
+			return 1;
+
 		if (setuid(context->uid)) {
 			lwsl_err("%s: setuid: %s failed\n", __func__,
 				  strerror(LWS_ERRNO));

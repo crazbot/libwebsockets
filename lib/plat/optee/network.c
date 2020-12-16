@@ -1,5 +1,36 @@
-#include "core/private.h"
+/*
+ * libwebsockets - small server side websockets and web server implementation
+ *
+ * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to
+ * deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ * IN THE SOFTWARE.
+ */
 
+#include "private-lib-core.h"
+
+#if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_HAVE_MBEDTLS_NET_SOCKETS)
+#include "mbedtls/net_sockets.h"
+#else
+#include "mbedtls/net.h"
+#endif
+#endif
 
 int
 lws_plat_pipe_create(struct lws *wsi)
@@ -18,7 +49,7 @@ lws_plat_pipe_close(struct lws *wsi)
 {
 }
 
-LWS_VISIBLE int
+int
 lws_send_pipe_choked(struct lws *wsi)
 {
 	struct lws *wsi_eff;
@@ -55,24 +86,27 @@ lws_poll_listen_fd(struct lws_pollfd *fd)
 }
 
 
-LWS_EXTERN int
+int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
+	lws_usec_t timeout_us = timeout_ms * LWS_US_PER_MS;
 	struct lws_context_per_thread *pt;
-	int n = -1, m, c;
+	int n = -1, m, c, a = 0;
 	//char buf;
 
 	/* stay dead once we are dead */
 
-	if (!context || !context->vhost_list)
+	if (!context)
 		return 1;
 
 	pt = &context->pt[tsi];
 
 	if (timeout_ms < 0)
-		goto faked_service;
+		timeout_ms = 0;
+	else
+		timeout_ms = 2000000000;
 
-	if (!pt->service_tid_detected) {
+	if (!pt->service_tid_detected && context->vhost_list) {
 		struct lws _lws;
 
 		memset(&_lws, 0, sizeof(_lws));
@@ -86,30 +120,36 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
 	 */
-	if (!lws_service_adjust_timeout(context, 1, tsi)) {
-		lwsl_notice("%s: doing forced service\n", __func__);
-		/* -1 timeout means just do forced service */
-		_lws_plat_service_tsi(context, -1, pt->tid);
-		/* still somebody left who wants forced service? */
-		if (!lws_service_adjust_timeout(context, 1, pt->tid))
-			/* yes... come back again quickly */
-			timeout_ms = 0;
-	}
+	if (lws_service_adjust_timeout(context, 1, tsi)) {
+again:
+		a = 0;
+		if (timeout_us) {
+			lws_usec_t us;
 
-	n = poll(pt->fds, pt->fds_count, timeout_ms);
+			lws_pt_lock(pt, __func__);
+			/* don't stay in poll wait longer than next hr timeout */
+			us = __lws_sul_service_ripe(pt->pt_sul_owner,
+						    LWS_COUNT_PT_SUL_OWNERS,
+						    lws_now_usecs());
+			if (us && us < timeout_us)
+				timeout_us = us;
 
-	m = 0;
+			lws_pt_unlock(pt);
+		}
 
-	if (pt->context->tls_ops &&
-	    pt->context->tls_ops->fake_POLLIN_for_buffered)
-		m = pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
+		n = poll(pt->fds, pt->fds_count, timeout_us / LWS_US_PER_MS);
 
-	if (/*!pt->ws.rx_draining_ext_list && */!m && !n) { /* nothing to do */
-		lws_service_fd_tsi(context, NULL, tsi);
-		return 0;
-	}
+		m = 0;
 
-faked_service:
+		if (pt->context->tls_ops &&
+		    pt->context->tls_ops->fake_POLLIN_for_buffered)
+			m = pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
+
+		if (/*!pt->ws.rx_draining_ext_list && */!m && !n) /* nothing to do */
+			return 0;
+	} else
+		a = 1;
+
 	m = lws_service_flag_pending(context, tsi);
 	if (m)
 		c = -1; /* unknown limit */
@@ -142,12 +182,9 @@ faked_service:
 			n--;
 	}
 
-	return 0;
-}
+	if (a)
+		goto again;
 
-int
-lws_plat_check_connection_error(struct lws *wsi)
-{
 	return 0;
 }
 
@@ -166,7 +203,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 
 int
 lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
-			int len)
+			size_t len)
 {
 	return 1;
 }
@@ -198,11 +235,6 @@ lws_plat_delete_socket_from_fds(struct lws_context *context,
 	pt->fds_count--;
 }
 
-void
-lws_plat_service_periodic(struct lws_context *context)
-{
-}
-
 int
 lws_plat_change_pollfd(struct lws_context *context,
 		      struct lws *wsi, struct lws_pollfd *pfd)
@@ -211,7 +243,7 @@ lws_plat_change_pollfd(struct lws_context *context,
 }
 
 const char *
-lws_plat_inet_ntop(int af, const void *src, char *dst, int cnt)
+lws_plat_inet_ntop(int af, const void *src, char *dst, socklen_t cnt)
 {
 	//return inet_ntop(af, src, dst, cnt);
 	return "lws_plat_inet_ntop";
@@ -224,4 +256,55 @@ lws_plat_inet_pton(int af, const char *src, void *dst)
 	return 1;
 }
 
+#if defined(LWS_WITH_MBEDTLS)
+int
+lws_plat_mbedtls_net_send(void *ctx, const uint8_t *buf, size_t len)
+{
+	int fd = ((mbedtls_net_context *) ctx)->fd;
+	int ret;
 
+	if (fd < 0)
+		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
+
+	ret = write(fd, buf, len);
+	if (ret >= 0)
+		return ret;
+
+	if (errno == EAGAIN || errno == EWOULDBLOCK)
+		return MBEDTLS_ERR_SSL_WANT_WRITE;
+
+	if (errno == EPIPE || errno == ECONNRESET)
+		return MBEDTLS_ERR_NET_CONN_RESET;
+
+	if( errno == EINTR )
+		return MBEDTLS_ERR_SSL_WANT_WRITE;
+
+	return MBEDTLS_ERR_NET_SEND_FAILED;
+}
+
+int
+lws_plat_mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len)
+{
+	int fd = ((mbedtls_net_context *) ctx)->fd;
+	int ret;
+
+	if (fd < 0)
+		return MBEDTLS_ERR_NET_INVALID_CONTEXT;
+
+	ret = (int)read(fd, buf, len);
+	if (ret >= 0)
+		return ret;
+
+	if (errno == EAGAIN || errno == EWOULDBLOCK)
+		return MBEDTLS_ERR_SSL_WANT_READ;
+
+	if (errno == EPIPE || errno == ECONNRESET)
+		return MBEDTLS_ERR_NET_CONN_RESET;
+
+	if (errno == EINTR)
+		return MBEDTLS_ERR_SSL_WANT_READ;
+
+	return MBEDTLS_ERR_NET_RECV_FAILED;
+}
+
+#endif

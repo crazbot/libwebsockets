@@ -72,6 +72,9 @@
 #endif
 
 #include <string.h>
+#include <fcntl.h>
+
+#include <sys/stat.h>
 
 struct per_vhost_data__raw_test {
 	struct lws_context *context;
@@ -175,7 +178,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			char buf[256];
 			int n;
 			
-			n = read(vhd->fifo, buf, sizeof(buf) - 1);
+			n = (int)read(vhd->fifo, buf, sizeof(buf) - 1);
 			if (n < 0) {
 				lwsl_err("FIFO read failed\n");
 				return 1;
@@ -244,7 +247,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (len > sizeof(pss->buf))
 			len = sizeof(pss->buf);
 		memcpy(pss->buf, in, len);
-		pss->len = len;
+		pss->len = (int)len;
 		lws_callback_on_writable(wsi);
 		break;
 
@@ -254,7 +257,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		lwsl_notice("LWS_CALLBACK_RAW_WRITEABLE\n");
-		lws_write(wsi, pss->buf, pss->len, LWS_WRITE_HTTP);
+		lws_write(wsi, pss->buf, (size_t)pss->len, LWS_WRITE_HTTP);
 		break;
 
 	default:
@@ -278,28 +281,17 @@ static const struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_RAW_TEST
 };
 
-LWS_EXTERN LWS_VISIBLE int
-init_protocol_lws_raw_test(struct lws_context *context,
-			     struct lws_plugin_capability *c)
-{
-	if (c->api_magic != LWS_PLUGIN_API_MAGIC) {
-		lwsl_err("Plugin API %d, library API %d", LWS_PLUGIN_API_MAGIC,
-			 c->api_magic);
-		return 1;
-	}
+LWS_VISIBLE const lws_plugin_protocol_t lws_raw_test = {
+	.hdr = {
+		"lws raw test",
+		"lws_protocol_plugin",
+		LWS_PLUGIN_API_MAGIC
+	},
 
-	c->protocols = protocols;
-	c->count_protocols = LWS_ARRAY_SIZE(protocols);
-	c->extensions = NULL;
-	c->count_extensions = 0;
-
-	return 0;
-}
-
-LWS_EXTERN LWS_VISIBLE int
-destroy_protocol_lws_raw_test(struct lws_context *context)
-{
-	return 0;
-}
+	.protocols = protocols,
+	.count_protocols = LWS_ARRAY_SIZE(protocols),
+	.extensions = NULL,
+	.count_extensions = 0,
+};
 
 #endif

@@ -30,7 +30,9 @@ int main(int argc, const char **argv)
 	lwsl_user("LWS JOSE api tests\n");
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+#if defined(LWS_WITH_NETWORK)
 	info.port = CONTEXT_PORT_NO_LISTEN;
+#endif
 	info.options = 0;
 
 	context = lws_create_context(&info);
@@ -40,8 +42,11 @@ int main(int argc, const char **argv)
 	}
 
 	result |= test_jwk(context);
+	lwsl_notice("%d\n", result);
 	result |= test_jws(context);
+	lwsl_notice("%d\n", result);
 	result |= test_jwe(context);
+	lwsl_notice("%d\n", result);
 
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
 

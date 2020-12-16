@@ -1,25 +1,28 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
  *
- *  This library is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU Lesser General Public
- *  License as published by the Free Software Foundation:
- *  version 2.1 of the License.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to
+ * deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
  *
- *  This library is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- *  Lesser General Public License for more details.
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
  *
- *  You should have received a copy of the GNU Lesser General Public
- *  License along with this library; if not, write to the Free Software
- *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- *  MA  02110-1301  USA
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 #if defined(LWS_WITH_SERVER_STATUS)
 
@@ -45,7 +48,7 @@ lws_sum_stats(const struct lws_context *ctx, struct lws_conn_stats *cs)
 	}
 }
 
-LWS_EXTERN int
+int
 lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 {
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
@@ -59,13 +62,13 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 		"callback://"
 	};
 #endif
-	char *orig = buf, *end = buf + len - 1, first = 1;
-	int n = 0;
+	char *orig = buf, *end = buf + len - 1, first;
+	int n;
 
 	if (len < 100)
 		return 0;
 
-	buf += lws_snprintf(buf, end - buf,
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
 			"{\n \"name\":\"%s\",\n"
 			" \"port\":\"%d\",\n"
 			" \"use_ssl\":\"%d\",\n"
@@ -102,11 +105,12 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 	if (vh->http.mount_list) {
 		const struct lws_http_mount *m = vh->http.mount_list;
 
-		buf += lws_snprintf(buf, end - buf, ",\n \"mounts\":[");
+		buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), ",\n \"mounts\":[");
+		first = 1;
 		while (m) {
 			if (!first)
-				buf += lws_snprintf(buf, end - buf, ",");
-			buf += lws_snprintf(buf, end - buf,
+				buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), ",");
+			buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
 					"\n  {\n   \"mountpoint\":\"%s\",\n"
 					"  \"origin\":\"%s%s\",\n"
 					"  \"cache_max_age\":\"%d\",\n"
@@ -122,25 +126,25 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 					m->cache_revalidate,
 					m->cache_intermediaries);
 			if (m->def)
-				buf += lws_snprintf(buf, end - buf,
+				buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
 						",\n  \"default\":\"%s\"",
 						m->def);
-			buf += lws_snprintf(buf, end - buf, "\n  }");
+			buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "\n  }");
 			first = 0;
 			m = m->mount_next;
 		}
-		buf += lws_snprintf(buf, end - buf, "\n ]");
+		buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "\n ]");
 	}
 #endif
 	if (vh->protocols) {
 		n = 0;
 		first = 1;
 
-		buf += lws_snprintf(buf, end - buf, ",\n \"ws-protocols\":[");
+		buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), ",\n \"ws-protocols\":[");
 		while (n < vh->count_protocols) {
 			if (!first)
-				buf += lws_snprintf(buf, end - buf, ",");
-			buf += lws_snprintf(buf, end - buf,
+				buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), ",");
+			buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
 					"\n  {\n   \"%s\":{\n"
 					"    \"status\":\"ok\"\n   }\n  }"
 					,
@@ -148,16 +152,16 @@ lws_json_dump_vhost(const struct lws_vhost *vh, char *buf, int len)
 			first = 0;
 			n++;
 		}
-		buf += lws_snprintf(buf, end - buf, "\n ]");
+		buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "\n ]");
 	}
 
-	buf += lws_snprintf(buf, end - buf, "\n}");
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "\n}");
 
-	return buf - orig;
+	return lws_ptr_diff(buf, orig);
 }
 
 
-LWS_EXTERN LWS_VISIBLE int
+int
 lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 		int hide_vhosts)
 {
@@ -166,30 +170,32 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 	const struct lws_context_per_thread *pt;
 	int n, listening = 0, cgi_count = 0, fd;
 	struct lws_conn_stats cs;
-	time_t t = time(NULL);
 	double d = 0;
 #ifdef LWS_WITH_CGI
 	struct lws_cgi * const *pcgi;
 #endif
 
-#ifdef LWS_WITH_LIBUV
-	uv_uptime(&d);
-#endif
+//#ifdef LWS_WITH_LIBUV &&
+//	uv_uptime(&d);
+//#endif
 
-	buf += lws_snprintf(buf, end - buf, "{ "
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "{ "
 			    "\"version\":\"%s\",\n"
 			    "\"uptime\":\"%ld\",\n",
 			    lws_get_library_version(),
 			    (long)d);
 
 #ifdef LWS_HAVE_GETLOADAVG
+#if defined(__sun)
+#include <sys/loadavg.h>
+#endif
 	{
 		double d[3];
 		int m;
 
 		m = getloadavg(d, 3);
 		for (n = 0; n < m; n++) {
-			buf += lws_snprintf(buf, end - buf,
+			buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
 				"\"l%d\":\"%.2f\",\n",
 				n + 1, d[n]);
 		}
@@ -199,55 +205,56 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 	fd = lws_open("/proc/self/statm", LWS_O_RDONLY);
 	if (fd >= 0) {
 		char contents[96], pure[96];
-		n = read(fd, contents, sizeof(contents) - 1);
+		n = (int)read(fd, contents, sizeof(contents) - 1);
 		if (n > 0) {
 			contents[n] = '\0';
 			if (contents[n - 1] == '\n')
 				contents[--n] = '\0';
-			lws_json_purify(pure, contents, sizeof(pure));
+			lws_json_purify(pure, contents, sizeof(pure), NULL);
 
-			buf += lws_snprintf(buf, end - buf,
+			buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
 					  "\"statm\": \"%s\",\n", pure);
 		}
 		close(fd);
 	}
 
-	buf += lws_snprintf(buf, end - buf, "\"heap\":%lld,\n\"contexts\":[\n",
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "\"heap\":%lld,\n\"contexts\":[\n",
 				(long long)lws_get_allocated_heap());
 
-	buf += lws_snprintf(buf, end - buf, "{ "
-				"\"context_uptime\":\"%ld\",\n"
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "{ "
+				"\"context_uptime\":\"%llu\",\n"
 				"\"cgi_spawned\":\"%d\",\n"
 				"\"pt_fd_max\":\"%d\",\n"
 				"\"ah_pool_max\":\"%d\",\n"
-				"\"deprecated\":\"%d\",\n"
-				"\"wsi_alive\":\"%d\",\n",
-				(unsigned long)(t - context->time_up),
+				"\"deprecated\":\"%d\",\n",
+				(unsigned long long)(lws_now_usecs() - context->time_up) /
+					LWS_US_PER_SEC,
 				context->count_cgi_spawned,
 				context->fd_limit_per_thread,
 				context->max_http_header_pool,
-				context->deprecated,
-				context->count_wsi_allocated);
+				context->deprecated);
 
-	buf += lws_snprintf(buf, end - buf, "\"pt\":[\n ");
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "\"pt\":[\n ");
 	for (n = 0; n < context->count_threads; n++) {
 		pt = &context->pt[n];
 		if (n)
-			buf += lws_snprintf(buf, end - buf, ",");
-		buf += lws_snprintf(buf, end - buf,
+			buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), ",");
+		buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
 				"\n  {\n"
 				"    \"fds_count\":\"%d\",\n"
 				"    \"ah_pool_inuse\":\"%d\",\n"
-				"    \"ah_wait_list\":\"%d\"\n"
+				"    \"ah_wait_list\":\"%d\",\n"
+				"    \"wsi_alive\":\"%d\",\n"
 				"    }",
 				pt->fds_count,
 				pt->http.ah_count_in_use,
-				pt->http.ah_wait_list_length);
+				pt->http.ah_wait_list_length,
+				pt->count_wsi_allocated);
 	}
 
-	buf += lws_snprintf(buf, end - buf, "]");
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "]");
 
-	buf += lws_snprintf(buf, end - buf, ", \"vhosts\":[\n ");
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), ", \"vhosts\":[\n ");
 
 	first = 1;
 	vh = context->vhost_list;
@@ -258,9 +265,9 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 
 		if (!hide_vhosts) {
 			if (!first)
-				if(buf != end)
+				if (buf != end)
 					*buf++ = ',';
-			buf += lws_json_dump_vhost(vh, buf, end - buf);
+			buf += lws_json_dump_vhost(vh, buf, lws_ptr_diff(end, buf));
 			first = 0;
 		}
 		if (vh->lserv_wsi)
@@ -268,7 +275,7 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 		vh = vh->vhost_next;
 	}
 
-	buf += lws_snprintf(buf, end - buf,
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf),
 			"],\n\"listen_wsi\":\"%d\",\n"
 			" \"rx\":\"%llu\",\n"
 			" \"tx\":\"%llu\",\n"
@@ -302,15 +309,15 @@ lws_json_dump_context(const struct lws_context *context, char *buf, int len,
 		}
 	}
 #endif
-	buf += lws_snprintf(buf, end - buf, ",\n \"cgi_alive\":\"%d\"\n ",
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), ",\n \"cgi_alive\":\"%d\"\n ",
 			cgi_count);
 
-	buf += lws_snprintf(buf, end - buf, "}");
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "}");
 
 
-	buf += lws_snprintf(buf, end - buf, "]}\n ");
+	buf += lws_snprintf(buf, lws_ptr_diff_size_t(end, buf), "]}\n ");
 
-	return buf - orig;
+	return lws_ptr_diff(buf, orig);
 }
 
 #endif

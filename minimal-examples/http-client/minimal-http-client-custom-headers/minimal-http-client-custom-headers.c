@@ -51,7 +51,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-		status = lws_http_client_http_response(wsi);
+		status = (int)lws_http_client_http_response(wsi);
 		lwsl_user("Connected with server response: %d\n", status);
 
 		/*
@@ -168,8 +168,16 @@ int main(int argc, const char **argv)
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
+	/*
+	 * since we know this lws context is only ever going to be used with
+	 * one client wsis / fds / sockets at a time, let lws know it doesn't
+	 * have to use the default allocations for fd tables up to ulimit -n.
+	 * It will just allocate for 1 internal and 1 (+ 1 http2 nwsi) that we
+	 * will use.
+	 */
+	info.fd_limit_per_thread = 1 + 1 + 1;
 
-#if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL)
 	/*
 	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
 	 * CA to trust explicitly.
@@ -211,7 +219,7 @@ int main(int argc, const char **argv)
 	lws_client_connect_via_info(&i);
 
 	while (n >= 0 && client_wsi && !interrupted)
-		n = lws_service(context, 1000);
+		n = lws_service(context, 0);
 
 	lws_context_destroy(context);
 	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");

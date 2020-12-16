@@ -1,31 +1,34 @@
-/*
- * libwebsockets - generic RSA api hiding the backend
+ /*
+ * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2017 - 2018 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
  *
- *  This library is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU Lesser General Public
- *  License as published by the Free Software Foundation:
- *  version 2.1 of the License.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to
+ * deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
  *
- *  This library is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- *  Lesser General Public License for more details.
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
  *
- *  You should have received a copy of the GNU Lesser General Public
- *  License along with this library; if not, write to the Free Software
- *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- *  MA  02110-1301  USA
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ * IN THE SOFTWARE.
  *
  *  lws_genrsa provides an RSA abstraction api in lws that works the
  *  same whether you are using openssl or mbedtls crypto functions underneath.
  */
-#include "core/private.h"
-#include "tls/mbedtls/private.h"
+#include "private-lib-core.h"
+#include "private-lib-tls-mbedtls.h"
 #include <mbedtls/rsa.h>
 
-LWS_VISIBLE void
+void
 lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
 {
 	int n;
@@ -37,7 +40,7 @@ lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
 
 static int mode_map[] = { MBEDTLS_RSA_PKCS_V15, MBEDTLS_RSA_PKCS_V21 };
 
-LWS_VISIBLE int
+int
 lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
 		  struct lws_context *context, enum enum_genrsa_mode mode,
 		  enum lws_genhash_types oaep_hashid)
@@ -56,7 +59,7 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
 	mbedtls_rsa_init(ctx->ctx, mode_map[mode], 0);
 
 	ctx->ctx->padding = mode_map[mode];
-	ctx->ctx->hash_id = lws_gencrypto_mbedtls_hash_to_MD_TYPE(oaep_hashid);
+	ctx->ctx->hash_id = (int)lws_gencrypto_mbedtls_hash_to_MD_TYPE(oaep_hashid);
 
 	{
 		int n;
@@ -82,8 +85,13 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, struct lws_gencrypto_keyelem *el,
 		if ( el[LWS_GENCRYPTO_RSA_KEYEL_D].len &&
 		    !el[LWS_GENCRYPTO_RSA_KEYEL_P].len &&
 		    !el[LWS_GENCRYPTO_RSA_KEYEL_Q].len) {
+#if defined(LWS_HAVE_mbedtls_rsa_complete)
 			if (mbedtls_rsa_complete(ctx->ctx)) {
 				lwsl_notice("mbedtls_rsa_complete failed\n");
+#else
+			{
+				lwsl_notice("%s: you have to provide P and Q\n", __func__);
+#endif
 				lws_free_set_NULL(ctx->ctx);
 
 				return -1;
@@ -106,7 +114,7 @@ _rngf(void *context, unsigned char *buf, size_t len)
 	return -1;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		       enum enum_genrsa_mode mode, struct lws_gencrypto_keyelem *el,
 		       int bits)
@@ -126,7 +134,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 
 	mbedtls_rsa_init(ctx->ctx, mode_map[mode], 0);
 
-	n = mbedtls_rsa_gen_key(ctx->ctx, _rngf, context, bits, 65537);
+	n = mbedtls_rsa_gen_key(ctx->ctx, _rngf, context, (unsigned int)bits, 65537);
 	if (n) {
 		lwsl_err("mbedtls_rsa_gen_key failed 0x%x\n", -n);
 		goto cleanup_1;
@@ -145,9 +153,10 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 					mbedtls_mpi_size(mpi[n]), "genrsakey");
 				if (!el[n].buf)
 					goto cleanup;
-				el[n].len = mbedtls_mpi_size(mpi[n]);
-				mbedtls_mpi_write_binary(mpi[n], el[n].buf,
-							 el[n].len);
+				el[n].len = (uint32_t)mbedtls_mpi_size(mpi[n]);
+				if (mbedtls_mpi_write_binary(mpi[n], el[n].buf,
+							 el[n].len))
+					goto cleanup;
 			}
 	}
 
@@ -163,7 +172,7 @@ cleanup_1:
 	return -1;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out, size_t out_max)
 {
@@ -172,7 +181,9 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 	ctx->ctx->len = in_len;
 
+#if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
+#endif
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
@@ -198,10 +209,10 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
-	return olen;
+	return (int)olen;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			   size_t in_len, uint8_t *out, size_t out_max)
 {
@@ -210,7 +221,9 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 	ctx->ctx->len = in_len;
 
+#if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
+#endif
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
@@ -236,16 +249,18 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
-	return olen;
+	return (int)olen;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out)
 {
 	int n;
 
+#if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
+#endif
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
@@ -271,16 +286,18 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
-	return mbedtls_mpi_size(&ctx->ctx->N);
+	return (int)mbedtls_mpi_size(&ctx->ctx->N);
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			   size_t in_len, uint8_t *out)
 {
 	int n;
 
+#if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
+#endif
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
@@ -306,31 +323,33 @@ lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
-	return mbedtls_mpi_size(&ctx->ctx->N);
+	return (int)mbedtls_mpi_size(&ctx->ctx->N);
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			 enum lws_genhash_types hash_type, const uint8_t *sig,
 			 size_t sig_len)
 {
-	int n, h = lws_gencrypto_mbedtls_hash_to_MD_TYPE(hash_type);
+	int n, h = (int)lws_gencrypto_mbedtls_hash_to_MD_TYPE(hash_type);
 
 	if (h < 0)
 		return -1;
 
+#if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
+#endif
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
 		n = mbedtls_rsa_rsassa_pkcs1_v15_verify(ctx->ctx, NULL, NULL,
 							MBEDTLS_RSA_PUBLIC,
-							h, 0, in, sig);
+							(mbedtls_md_type_t)h, 0, in, sig);
 		break;
 	case LGRSAM_PKCS1_OAEP_PSS:
 		n = mbedtls_rsa_rsassa_pss_verify(ctx->ctx, NULL, NULL,
 						  MBEDTLS_RSA_PUBLIC,
-						  h, 0, in, sig);
+						  (mbedtls_md_type_t)h, 0, in, sig);
 		break;
 	default:
 		return -1;
@@ -344,17 +363,19 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	return n;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		       enum lws_genhash_types hash_type, uint8_t *sig,
 		       size_t sig_len)
 {
-	int n, h = lws_gencrypto_mbedtls_hash_to_MD_TYPE(hash_type);
+	int n, h = (int)lws_gencrypto_mbedtls_hash_to_MD_TYPE(hash_type);
 
 	if (h < 0)
 		return -1;
 
+#if defined(LWS_HAVE_mbedtls_rsa_complete)
 	mbedtls_rsa_complete(ctx->ctx);
+#endif
 
 	/*
 	 * The "sig" buffer must be as large as the size of ctx->N
@@ -367,12 +388,12 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	case LGRSAM_PKCS1_1_5:
 		n = mbedtls_rsa_rsassa_pkcs1_v15_sign(ctx->ctx, NULL, NULL,
 						      MBEDTLS_RSA_PRIVATE,
-						      h, 0, in, sig);
+						      (mbedtls_md_type_t)h, 0, in, sig);
 		break;
 	case LGRSAM_PKCS1_OAEP_PSS:
 		n = mbedtls_rsa_rsassa_pss_sign(ctx->ctx, NULL, NULL,
 						MBEDTLS_RSA_PRIVATE,
-						h, 0, in, sig);
+						(mbedtls_md_type_t)h, 0, in, sig);
 		break;
 	default:
 		return -1;
@@ -384,10 +405,10 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
-	return ctx->ctx->len;
+	return (int)ctx->ctx->len;
 }
 
-LWS_VISIBLE int
+int
 lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 			    uint8_t *pkey_asn1, size_t pkey_asn1_len)
 {
@@ -425,47 +446,49 @@ lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 	*p++ = 0x00;
 
 	for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++) {
-		int m = mbedtls_mpi_size(mpi[n]);
+		int m = (int)mbedtls_mpi_size(mpi[n]);
 		uint8_t *elen;
 
 		*p++ = 0x02;
 		elen = p;
 		if (m < 0x7f)
-			*p++ = m;
+			*p++ = (uint8_t)m;
 		else {
 			*p++ = 0x82;
-			*p++ = m >> 8;
-			*p++ = m & 0xff;
+			*p++ = (uint8_t)(m >> 8);
+			*p++ = (uint8_t)(m & 0xff);
 		}
 
 		if (p + m > end)
 			return -1;
 
-		mbedtls_mpi_write_binary(mpi[n], p, m);
+		if (mbedtls_mpi_write_binary(mpi[n], p, (unsigned int)m))
+			return -1;
 		if (p[0] & 0x80) {
 			p[0] = 0x00;
-			mbedtls_mpi_write_binary(mpi[n], &p[1], m);
+			if (mbedtls_mpi_write_binary(mpi[n], &p[1], (unsigned int)m))
+				return -1;
 			m++;
 		}
 		if (m < 0x7f)
-			*elen = m;
+			*elen = (uint8_t)m;
 		else {
 			*elen++ = 0x82;
-			*elen++ = m >> 8;
-			*elen = m & 0xff;
+			*elen++ = (uint8_t)(m >> 8);
+			*elen = (uint8_t)(m & 0xff);
 		}
 		p += m;
 	}
 
 	n = lws_ptr_diff(p, pkey_asn1);
 
-	*totlen++ = (n - 4) >> 8;
-	*totlen = (n - 4) & 0xff;
+	*totlen++ = (uint8_t)((n - 4) >> 8);
+	*totlen = (uint8_t)((n - 4) & 0xff);
 
 	return n;
 }
 
-LWS_VISIBLE void
+void
 lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 {
 	if (!ctx->ctx)

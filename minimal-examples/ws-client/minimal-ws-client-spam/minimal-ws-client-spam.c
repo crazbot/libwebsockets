@@ -13,6 +13,12 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#if defined(WIN32)
+#define HAVE_STRUCT_TIMESPEC
+#if defined(pid_t)
+#undef pid_t
+#endif
+#endif
 #include <pthread.h>
 
 enum {
@@ -32,7 +38,7 @@ static struct client clients[200];
 static int interrupted, port = 443, ssl_connection = LCCSCF_USE_SSL;
 static const char *server_address = "libwebsockets.org",
 		  *pro = "lws-mirror-protocol";
-static int concurrent = 10, conn, tries, est, errors, closed, sent,  limit = 100;
+static int concurrent = 3, conn, tries, est, errors, closed, sent, limit = 15;
 
 struct pss {
 	int conn;
@@ -64,6 +70,7 @@ connect_client(int idx)
 	clients[idx].state = CLIENT_CONNECTING;
 	tries++;
 
+	lwsl_notice("%s: connection %s:%d\n", __func__, i.address, i.port);
 	if (!lws_client_connect_via_info(&i)) {
 		clients[idx].wsi = NULL;
 		clients[idx].state = CLIENT_IDLE;
@@ -143,13 +150,13 @@ callback_minimal_spam(struct lws *wsi, enum lws_callback_reasons reason,
 		n = lws_snprintf((char *)ping + LWS_PRE, sizeof(ping) - LWS_PRE,
 					  "hello %d", pss->conn);
 
-		m = lws_write(wsi, ping + LWS_PRE, n, LWS_WRITE_TEXT);
+		m = lws_write(wsi, ping + LWS_PRE, (unsigned int)n, LWS_WRITE_TEXT);
 		if (m < n) {
 			lwsl_err("sending ping failed: %d\n", m);
 
 			return -1;
 		}
-		lws_set_timeout(wsi, 1, LWS_TO_KILL_ASYNC);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_USER_OK, LWS_TO_KILL_ASYNC);
 		break;
 
 	default:
@@ -199,7 +206,7 @@ int main(int argc, const char **argv)
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
-#if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL)
 	/*
 	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
 	 * CA to trust explicitly.
@@ -226,12 +233,22 @@ int main(int argc, const char **argv)
 		info.options = 0;
 	}
 
-	if (concurrent > (int)LWS_ARRAY_SIZE(clients)) {
+	if (concurrent < 0 ||
+	    concurrent > (int)LWS_ARRAY_SIZE(clients)) {
 		lwsl_err("%s: -c %d larger than max concurrency %d\n", __func__,
 				concurrent, (int)LWS_ARRAY_SIZE(clients));
 
 		return 1;
 	}
+
+	/*
+	 * since we know this lws context is only ever going to be used with
+	 * one client wsis / fds / sockets at a time, let lws know it doesn't
+	 * have to use the default allocations for fd tables up to ulimit -n.
+	 * It will just allocate for 1 internal and n (+ 1 http2 nwsi) that we
+	 * will use.
+	 */
+	info.fd_limit_per_thread = (unsigned int)(1 + concurrent + 1);
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -240,7 +257,9 @@ int main(int argc, const char **argv)
 	}
 
 	while (n >= 0 && !interrupted)
-		n = lws_service(context, 1000);
+		n = lws_service(context, 0);
+
+	lwsl_notice("%s: exiting service loop\n", __func__);
 
 	lws_context_destroy(context);
 

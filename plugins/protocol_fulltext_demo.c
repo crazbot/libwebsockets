@@ -158,11 +158,11 @@ reply_404:
 
 		n = LWS_WRITE_HTTP;
 		if (pss->first)
-			p += lws_snprintf((char *)p, lws_ptr_diff(end, p),
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 				"{\"indexed\": %d, \"ac\": [", !!pss->result);
 
 		while (pss->ac && lws_ptr_diff(end, p) > 256) {
-			p += lws_snprintf((char *)p, lws_ptr_diff(end, p),
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 				"%c{\"ac\": \"%s\",\"matches\": %d,"
 				"\"agg\": %d, \"elided\": %d}",
 				pss->first ? ' ' : ',', (char *)(pss->ac + 1),
@@ -176,14 +176,14 @@ reply_404:
 		if (!pss->ac_done && !pss->ac && pss->fp) {
 			pss->ac_done = 1;
 
-			p += lws_snprintf((char *)p, lws_ptr_diff(end, p),
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 					  "], \"fp\": [");
 		}
 
-		while (pss->fp && lws_ptr_diff(end, p) > 256) {
+		while (pss->fp && lws_ptr_diff_size_t(end, p) > 256) {
 			if (!pss->fp_init_done) {
 				p += lws_snprintf((char *)p,
-					lws_ptr_diff(end, p),
+						lws_ptr_diff_size_t(end, p),
 					"%c{\"path\": \"%s\",\"matches\": %d,"
 					"\"origlines\": %d,"
 					"\"hits\": [", pss->first ? ' ' : ',',
@@ -201,7 +201,7 @@ reply_404:
 				       lws_ptr_diff(end, p) > 256) {
 
 					p += lws_snprintf((char *)p,
-						lws_ptr_diff(end, p),
+							lws_ptr_diff_size_t(end, p),
 						"%c\n{\"l\":%d,\"o\":%d,"
 						"\"s\":\"%s\"}",
 						!pss->done ? ' ' : ',',
@@ -224,12 +224,12 @@ reply_404:
 
 		if (!pss->ac && !pss->fp) {
 			n = LWS_WRITE_HTTP_FINAL;
-			p += lws_snprintf((char *)p, lws_ptr_diff(end, p),
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 						"]}");
 		}
 
 		if (lws_write(wsi, (uint8_t *)start,
-			      lws_ptr_diff(p, start), n) !=
+				lws_ptr_diff_size_t(p, start), (enum lws_write_protocol)n) !=
 					      lws_ptr_diff(p, start))
 			return 1;
 
@@ -266,28 +266,17 @@ static const struct lws_protocols protocols[] = {
 	LWS_PLUGIN_PROTOCOL_FULLTEXT_DEMO
 };
 
-LWS_EXTERN LWS_VISIBLE int
-init_protocol_fulltext_demo(struct lws_context *context,
-			struct lws_plugin_capability *c)
-{
-	if (c->api_magic != LWS_PLUGIN_API_MAGIC) {
-		lwsl_err("Plugin API %d, library API %d", LWS_PLUGIN_API_MAGIC,
-			 c->api_magic);
-		return 1;
-	}
+LWS_VISIBLE const lws_plugin_protocol_t fulltext_demo = {
+	.hdr = {
+		"fulltext demo",
+		"lws_protocol_plugin",
+		LWS_PLUGIN_API_MAGIC
+	},
 
-	c->protocols = protocols;
-	c->count_protocols = LWS_ARRAY_SIZE(protocols);
-	c->extensions = NULL;
-	c->count_extensions = 0;
-
-	return 0;
-}
-
-LWS_EXTERN LWS_VISIBLE int
-destroy_protocol_fulltext_demo(struct lws_context *context)
-{
-	return 0;
-}
+	.protocols = protocols,
+	.count_protocols = LWS_ARRAY_SIZE(protocols),
+	.extensions = NULL,
+	.count_extensions = 0,
+};
 
 #endif

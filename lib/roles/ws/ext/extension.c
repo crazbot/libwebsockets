@@ -1,8 +1,32 @@
-#include "core/private.h"
+/*
+ * libwebsockets - small server side websockets and web server implementation
+ *
+ * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to
+ * deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ * IN THE SOFTWARE.
+ */
+
+#include "private-lib-core.h"
 
 #include "extension-permessage-deflate.h"
 
-LWS_VISIBLE void
+void
 lws_context_init_extensions(const struct lws_context_creation_info *info,
 			    struct lws_context *context)
 {
@@ -17,7 +41,7 @@ enum lws_ext_option_parser_states {
 	LEAPS_SEEK_ARG_TERM
 };
 
-LWS_VISIBLE int
+int
 lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 		      void *ext_user, const struct lws_ext_options *opts,
 		      const char *in, int len)
@@ -41,7 +65,7 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 				len = 1;
 				break;
 			}
-			match_map = (1 << count_options) - 1;
+			match_map = (unsigned int)(1 << count_options) - 1;
 			leap = LEAPS_EAT_NAME;
 			w = 0;
 
@@ -63,7 +87,7 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 
 				if (*in == opts[n].name[w]) {
 					if (!opts[n].name[w + 1]) {
-						oa.option_index = n;
+						oa.option_index = (int)n;
 						lwsl_ext("hit %d\n",
 							 oa.option_index);
 						leap = LEAPS_SEEK_VAL;
@@ -72,7 +96,7 @@ lws_ext_parse_options(const struct lws_extension *ext, struct lws *wsi,
 						break;
 					}
 				} else {
-					match_map &= ~(1 << n);
+					match_map &= (unsigned int)~(1 << n);
 					if (!match_map) {
 						lwsl_ext("empty match map\n");
 						return -1;
@@ -174,7 +198,7 @@ int lws_ext_cb_active(struct lws *wsi, int reason, void *arg, int len)
 	for (n = 0; n < wsi->ws->count_act_ext; n++) {
 		m = wsi->ws->active_extensions[n]->callback(
 			lws_get_context(wsi), wsi->ws->active_extensions[n],
-			wsi, reason, wsi->ws->act_ext_user[n], arg, len);
+			wsi, (enum lws_extension_callback_reasons)reason, wsi->ws->act_ext_user[n], arg, (size_t)len);
 		if (m < 0) {
 			lwsl_ext("Ext '%s' failed to handle callback %d!\n",
 				 wsi->ws->active_extensions[n]->name, reason);
@@ -196,14 +220,14 @@ int lws_ext_cb_all_exts(struct lws_context *context, struct lws *wsi,
 	int n = 0, m, handled = 0;
 	const struct lws_extension *ext;
 
-	if (!wsi || !wsi->vhost || !wsi->ws)
+	if (!wsi || !wsi->a.vhost || !wsi->ws)
 		return 0;
 
-	ext = wsi->vhost->ws.extensions;
+	ext = wsi->a.vhost->ws.extensions;
 
 	while (ext && ext->callback && !handled) {
-		m = ext->callback(context, ext, wsi, reason,
-				  (void *)(lws_intptr_t)n, arg, len);
+		m = ext->callback(context, ext, wsi, (enum lws_extension_callback_reasons)reason,
+				  (void *)(lws_intptr_t)n, arg, (size_t)len);
 		if (m < 0) {
 			lwsl_ext("Ext '%s' failed to handle callback %d!\n",
 				 wsi->ws->active_extensions[n]->name, reason);
@@ -225,7 +249,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 	struct lws_tokens ebuf;
 	int ret, m, n = 0;
 
-	ebuf.token = (char *)buf;
+	ebuf.token = buf;
 	ebuf.len = (int)len;
 
 	/*
@@ -248,7 +272,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 		if (m) /* handled */
 			ret = 1;
 
-		if ((char *)buf != ebuf.token)
+		if (buf != ebuf.token)
 			/*
 			 * extension recreated it:
 			 * need to buffer this if not all sent
@@ -258,8 +282,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 		/* assuming they left us something to send, send it */
 
 		if (ebuf.len) {
-			n = lws_issue_raw(wsi, (unsigned char *)ebuf.token,
-					  ebuf.len);
+			n = lws_issue_raw(wsi, ebuf.token, (size_t)ebuf.len);
 			if (n < 0) {
 				lwsl_info("closing from ext access\n");
 				return -1;
@@ -267,7 +290,7 @@ lws_issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size_t len)
 
 			/* always either sent it all or privately buffered */
 			if (wsi->ws->clean_buffer)
-				len = n;
+				len = (size_t)n;
 
 			lwsl_ext("%s: written %d bytes to client\n",
 				 __func__, n);
@@ -310,7 +333,7 @@ int
 lws_any_extension_handled(struct lws *wsi, enum lws_extension_callback_reasons r,
 			  void *v, size_t len)
 {
-	struct lws_context *context = wsi->context;
+	struct lws_context *context = wsi->a.context;
 	int n, handled = 0;
 
 	if (!wsi->ws)
@@ -353,7 +376,7 @@ lws_set_extension_option(struct lws *wsi, const char *ext_name,
 	oa.start = opt_val;
 	oa.len = 0;
 
-	return wsi->ws->active_extensions[idx]->callback(wsi->context,
+	return wsi->ws->active_extensions[idx]->callback(wsi->a.context,
 			wsi->ws->active_extensions[idx], wsi,
 			LWS_EXT_CB_NAMED_OPTION_SET, wsi->ws->act_ext_user[idx],
 			&oa, 0);

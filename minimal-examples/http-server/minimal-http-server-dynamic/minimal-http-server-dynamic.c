@@ -49,8 +49,27 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
 
-		/* in contains the url part after our mountpoint /dyn, if any */
-		lws_snprintf(pss->path, sizeof(pss->path), "%s", (const char *)in);
+		/*
+		 * If you want to know the full url path used, you can get it
+		 * like this
+		 *
+		 * n = lws_hdr_copy(wsi, buf, sizeof(buf), WSI_TOKEN_GET_URI);
+		 *
+		 * The base path is the first (n - strlen((const char *)in))
+		 * chars in buf.
+		 */
+
+		/*
+		 * In contains the url part after the place the mount was
+		 * positioned at, eg, if positioned at "/dyn" and given
+		 * "/dyn/mypath", in will contain /mypath
+		 */
+		lws_snprintf(pss->path, sizeof(pss->path), "%s",
+				(const char *)in);
+
+		lws_get_peer_simple(wsi, (char *)buf, sizeof(buf));
+		lwsl_notice("%s: HTTP: connection %s, path %s\n", __func__,
+				(const char *)buf, pss->path);
 
 		/*
 		 * prepare and write http headers... with regards to content-
@@ -126,7 +145,7 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 			 * to work with http/2, we must take care about LWS_PRE
 			 * valid behind the buffer we will send.
 			 */
-			p += lws_snprintf((char *)p, end - p, "<html>"
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "<html>"
 				"<head><meta charset=utf-8 "
 				"http-equiv=\"Content-Language\" "
 				"content=\"en\"/></head><body>"
@@ -143,15 +162,15 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 			 */
 
 			while (lws_ptr_diff(end, p) > 80)
-				p += lws_snprintf((char *)p, end - p,
+				p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 					"%d.%d: this is some content... ",
 					pss->times, pss->content_lines++);
 
-			p += lws_snprintf((char *)p, end - p, "<br><br>");
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "<br><br>");
 		}
 
 		pss->times++;
-		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff(p, start), n) !=
+		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff_size_t(p, start), (enum lws_write_protocol)n) !=
 				lws_ptr_diff(p, start))
 			return 1;
 
@@ -175,10 +194,11 @@ callback_dynamic_http(struct lws *wsi, enum lws_callback_reasons reason,
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
-static const struct lws_protocols protocol =
+static const struct lws_protocols defprot =
+	{ "defprot", lws_callback_http_dummy, 0, 0 }, protocol =
 	{ "http", callback_dynamic_http, sizeof(struct pss), 0 };
 
-static const struct lws_protocols *pprotocols[] = { &protocol, NULL };
+static const struct lws_protocols *pprotocols[] = { &defprot, &protocol, NULL };
 
 /* override the default mount for /dyn in the URL space */
 
@@ -281,8 +301,10 @@ int main(int argc, const char **argv)
 
 	info.port = 7682;
 	info.error_document_404 = "/404.html";
+#if defined(LWS_WITH_TLS)
 	info.ssl_cert_filepath = "localhost-100y.cert";
 	info.ssl_private_key_filepath = "localhost-100y.key";
+#endif
 	info.vhost_name = "localhost";
 
 	if (!lws_create_vhost(context, &info)) {
@@ -291,7 +313,7 @@ int main(int argc, const char **argv)
 	}
 
 	while (n >= 0 && !interrupted)
-		n = lws_service(context, 1000);
+		n = lws_service(context, 0);
 
 bail:
 	lws_context_destroy(context);

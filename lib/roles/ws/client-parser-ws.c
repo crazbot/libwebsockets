@@ -1,25 +1,28 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010-2018 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
  *
- *  This library is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU Lesser General Public
- *  License as published by the Free Software Foundation:
- *  version 2.1 of the License.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to
+ * deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
  *
- *  This library is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- *  Lesser General Public License for more details.
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
  *
- *  You should have received a copy of the GNU Lesser General Public
- *  License along with this library; if not, write to the Free Software
- *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- *  MA  02110-1301  USA
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ * IN THE SOFTWARE.
  */
 
-#include "core/private.h"
+#include "private-lib-core.h"
 
 /*
  * parsers.c: lws_ws_rx_sm() needs to be roughly kept in
@@ -79,7 +82,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 #endif
 				wsi->ws->continuation_possible = 1;
 				wsi->ws->check_utf8 = lws_check_opt(
-					wsi->context->options,
+					wsi->a.context->options,
 					LWS_SERVER_OPTION_VALIDATE_UTF8);
 				wsi->ws->utf8 = 0;
 				wsi->ws->first_fragment = 1;
@@ -210,7 +213,7 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 		break;
 
 	case LWS_RXPS_04_FRAME_HDR_LEN16_2:
-		wsi->ws->rx_packet_length = c << 8;
+		wsi->ws->rx_packet_length = (size_t)((unsigned int)c << 8);
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN16_1;
 		break;
 
@@ -359,12 +362,12 @@ int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 		 * if there's no protocol max frame size given, we are
 		 * supposed to default to context->pt_serv_buf_size
 		 */
-		if (!wsi->protocol->rx_buffer_size &&
-		    wsi->ws->rx_ubuf_head != wsi->context->pt_serv_buf_size)
+		if (!wsi->a.protocol->rx_buffer_size &&
+		    wsi->ws->rx_ubuf_head != wsi->a.context->pt_serv_buf_size)
 			break;
 
-		if (wsi->protocol->rx_buffer_size &&
-		    wsi->ws->rx_ubuf_head != wsi->protocol->rx_buffer_size)
+		if (wsi->a.protocol->rx_buffer_size &&
+		    wsi->ws->rx_ubuf_head != wsi->a.protocol->rx_buffer_size)
 			break;
 
 		/* spill because we filled our rx buffer */
@@ -382,8 +385,8 @@ spill:
 
 		switch (wsi->ws->opcode) {
 		case LWSWSOPC_CLOSE:
-			pp = (unsigned char *)&wsi->ws->rx_ubuf[LWS_PRE];
-			if (lws_check_opt(wsi->context->options,
+			pp = &wsi->ws->rx_ubuf[LWS_PRE];
+			if (lws_check_opt(wsi->a.context->options,
 					  LWS_SERVER_OPTION_VALIDATE_UTF8) &&
 			    wsi->ws->rx_ubuf_head > 2 &&
 			    lws_check_utf8(&wsi->ws->utf8, pp + 2,
@@ -401,9 +404,9 @@ spill:
 			}
 
 			lwsl_parser("client sees server close len = %d\n",
-						 wsi->ws->rx_ubuf_head);
+						 (int)wsi->ws->rx_ubuf_head);
 			if (wsi->ws->rx_ubuf_head >= 2) {
-				close_code = (pp[0] << 8) | pp[1];
+				close_code = (unsigned short)((pp[0] << 8) | pp[1]);
 				if (close_code < 1000 ||
 				    close_code == 1004 ||
 				    close_code == 1005 ||
@@ -419,7 +422,7 @@ spill:
 				}
 			}
 			if (user_callback_handle_rxflow(
-					wsi->protocol->callback, wsi,
+					wsi->a.protocol->callback, wsi,
 					LWS_CALLBACK_WS_PEER_INITIATED_CLOSE,
 					wsi->user_space, pp,
 					wsi->ws->rx_ubuf_head))
@@ -428,7 +431,7 @@ spill:
 			memcpy(wsi->ws->ping_payload_buf + LWS_PRE, pp,
 			       wsi->ws->rx_ubuf_head);
 			wsi->ws->close_in_ping_buffer_len =
-					wsi->ws->rx_ubuf_head;
+					(uint8_t)wsi->ws->rx_ubuf_head;
 
 			lwsl_info("%s: scheduling return close as ack\n",
 				  __func__);
@@ -443,7 +446,7 @@ spill:
 
 		case LWSWSOPC_PING:
 			lwsl_info("received %d byte ping, sending pong\n",
-				  wsi->ws->rx_ubuf_head);
+				  (int)wsi->ws->rx_ubuf_head);
 
 			/* he set a close reason on this guy, ignore PING */
 			if (wsi->ws->close_in_ping_buffer_len)
@@ -469,7 +472,7 @@ spill:
 			       &wsi->ws->rx_ubuf[LWS_PRE],
 			       wsi->ws->rx_ubuf_head);
 
-			wsi->ws->ping_payload_len = wsi->ws->rx_ubuf_head;
+			wsi->ws->ping_payload_len = (uint8_t)wsi->ws->rx_ubuf_head;
 			wsi->ws->ping_pending_flag = 1;
 
 			/* get it sent as soon as possible */
@@ -484,12 +487,7 @@ ping_drop:
 			lwsl_hexdump(&wsi->ws->rx_ubuf[LWS_PRE],
 				     wsi->ws->rx_ubuf_head);
 
-			if (wsi->pending_timeout ==
-				       PENDING_TIMEOUT_WS_PONG_CHECK_GET_PONG) {
-				lwsl_info("%p: received expected PONG\n", wsi);
-				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
-			}
-
+			lws_validity_confirmed(wsi);
 			/* issue it */
 			callback_action = LWS_CALLBACK_CLIENT_RECEIVE_PONG;
 			break;
@@ -525,14 +523,14 @@ ping_drop:
 			goto already_done;
 
 		pmdrx.eb_in.token = &wsi->ws->rx_ubuf[LWS_PRE];
-		pmdrx.eb_in.len = wsi->ws->rx_ubuf_head;
+		pmdrx.eb_in.len = (int)wsi->ws->rx_ubuf_head;
 
 		/* for the non-pm-deflate case */
 
 		pmdrx.eb_out = pmdrx.eb_in;
 
 		lwsl_debug("%s: starting disbursal of %d deframed rx\n",
-				__func__, wsi->ws->rx_ubuf_head);
+				__func__, (int)wsi->ws->rx_ubuf_head);
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 drain_extension:
@@ -556,6 +554,7 @@ drain_extension:
 				return -1;
 			}
 			if (n == PMDR_DID_NOTHING)
+				/* ie, not PMDR_NOTHING_WE_SHOULD_DO */
 				break;
 #endif
 			lwsl_ext("%s: post inflate ebuf in len %d / out len %d\n",
@@ -583,8 +582,8 @@ drain_extension:
 			if (wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
 
 				if (lws_check_utf8(&wsi->ws->utf8,
-						   (unsigned char *)pmdrx.eb_out.token,
-						   pmdrx.eb_out.len)) {
+						   pmdrx.eb_out.token,
+						   (unsigned int)pmdrx.eb_out.len)) {
 					lws_close_reason(wsi,
 						LWS_CLOSE_STATUS_INVALID_PAYLOAD,
 						(uint8_t *)"bad utf8", 8);
@@ -606,7 +605,7 @@ drain_extension:
 utf8_fail:
 					lwsl_info("utf8 error\n");
 					lwsl_hexdump_info(pmdrx.eb_out.token,
-							  pmdrx.eb_out.len);
+							  (unsigned int)pmdrx.eb_out.len);
 
 					return -1;
 				}
@@ -621,7 +620,7 @@ utf8_fail:
 
 			pmdrx.eb_out.token[pmdrx.eb_out.len] = '\0';
 
-			if (!wsi->protocol->callback)
+			if (!wsi->a.protocol->callback)
 				goto already_done;
 
 			if (callback_action == LWS_CALLBACK_CLIENT_RECEIVE_PONG)
@@ -646,19 +645,23 @@ utf8_fail:
 
 			/* if pmd not enabled, in == out */
 
-			if (n == PMDR_DID_NOTHING || n == PMDR_UNKNOWN)
+			if (n == PMDR_DID_NOTHING
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+			    || n == PMDR_UNKNOWN
+#endif
+			)
 				pmdrx.eb_in.len -= pmdrx.eb_out.len;
 
-			m = wsi->protocol->callback(wsi,
+			m = wsi->a.protocol->callback(wsi,
 					(enum lws_callback_reasons)callback_action,
 					wsi->user_space, pmdrx.eb_out.token,
-					pmdrx.eb_out.len);
+					(unsigned int)pmdrx.eb_out.len);
 
 			wsi->ws->first_fragment = 0;
 
 			lwsl_debug("%s: bulk ws rx: inp used %d, output %d\n",
-				    __func__, wsi->ws->rx_ubuf_head,
-				    pmdrx.eb_out.len);
+				    __func__, (int)wsi->ws->rx_ubuf_head,
+				    (int)pmdrx.eb_out.len);
 
 			/* if user code wants to close, let caller know */
 			if (m)

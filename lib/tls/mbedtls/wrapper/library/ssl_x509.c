@@ -104,7 +104,7 @@ X509* d2i_X509(X509 **cert, const unsigned char *buffer, long len)
         m = 1;
     }
 
-    ret = X509_METHOD_CALL(load, x, buffer, len);
+    ret = X509_METHOD_CALL(load, x, buffer, (int)len);
     if (ret) {
         SSL_DEBUG(SSL_PKEY_ERROR_LEVEL, "X509_METHOD_CALL(load) return %d", ret);
         goto failed2;
@@ -286,8 +286,7 @@ failed1:
 /**
  * @brief load certification into the SSL
  */
-int SSL_use_certificate_ASN1(SSL *ssl, int len,
-                             const unsigned char *d)
+int SSL_use_certificate_ASN1(SSL *ssl, const unsigned char *d, int len)
 {
     int ret;
     X509 *x;
